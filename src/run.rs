@@ -12,17 +12,32 @@ use crate::rng::Rng;
 use crate::travel::Port;
 use crate::ui::{render_prices, render_status, render_travel_menu, Io};
 
+/// A sink called after every turn (and on quit) so the caller can persist the
+/// game. Receives the current game and RNG state. `main` writes a save file
+/// here; tests pass a no-op. Keeping persistence a callback keeps this module
+/// filesystem-free and unit-testable with `ScriptedIo`.
+pub type Persist<'a> = dyn FnMut(&Game, &Rng) + 'a;
+
+/// A persist hook that does nothing — for tests and ephemeral play.
+pub fn no_persist(_: &Game, _: &Rng) {}
+
 /// Run a full game to completion (or until the player quits / input runs out)
 /// under the classic economy. Convenience over [`run_game`] for callers and
 /// tests that don't choose a mode.
 pub fn run(io: &mut dyn Io, rng: &mut Rng) -> Option<Outcome> {
     let game = Game::new(rng);
-    run_game(io, game, rng)
+    run_game(io, game, rng, &mut no_persist)
 }
 
 /// Run a pre-built game to completion. `main` uses this so the economy mode is
-/// chosen at the CLI layer; the loop itself is mode-agnostic.
-pub fn run_game(io: &mut dyn Io, mut game: Game, rng: &mut Rng) -> Option<Outcome> {
+/// chosen at the CLI layer; the loop itself is mode-agnostic. `persist` is
+/// invoked after each turn and on quit so the caller can save progress.
+pub fn run_game(
+    io: &mut dyn Io,
+    mut game: Game,
+    rng: &mut Rng,
+    persist: &mut Persist,
+) -> Option<Outcome> {
     io.writeln("===========================================");
     io.writeln("  Taipan!  — build your fortune on the China Seas");
     io.writeln(&format!(
@@ -64,14 +79,19 @@ pub fn run_game(io: &mut dyn Io, mut game: Game, rng: &mut Rng) -> Option<Outcom
                 }
             }
             "Q" => {
-                io.writeln("You slip away into the night. Game abandoned.");
+                io.writeln("You slip away into the night. Your game is saved.");
+                persist(&game, rng);
                 return game.outcome;
             }
             other => io.writeln(&format!("I don't understand '{other}', Taipan.")),
         }
+
+        // Persist after every turn so a crash or ctrl-C never loses progress.
+        persist(&game, rng);
     }
 
     announce_outcome(io, &game);
+    persist(&game, rng);
     game.outcome
 }
 
@@ -322,7 +342,33 @@ mod tests {
         let mut rng = Rng::new(1);
         let outcome = run(&mut io, &mut rng);
         assert_eq!(outcome, None);
-        assert!(io.output.contains("abandoned"));
+        assert!(io.output.contains("saved"));
+    }
+
+    #[test]
+    fn persist_fires_each_turn_and_on_quit() {
+        // Buy, travel, quit -> persist should be called after each of the 3
+        // turns. We count invocations and capture the last snapshot's cash.
+        let mut io = ScriptedIo::new(&["B", "General", "1", "T", "2", "Q"]);
+        let mut rng = Rng::new(1);
+        let game = Game::new(&mut rng);
+        let mut calls = 0;
+        let mut last_cash = u32::MAX;
+        {
+            let mut persist = |g: &Game, _r: &Rng| {
+                calls += 1;
+                last_cash = g.cash;
+            };
+            run_game(&mut io, game, &mut rng, &mut persist);
+        }
+        assert_eq!(
+            calls, 3,
+            "expected one persist per turn (buy, travel, quit)"
+        );
+        assert!(
+            last_cash < 400,
+            "cash should reflect the buy in the snapshot"
+        );
     }
 
     #[test]

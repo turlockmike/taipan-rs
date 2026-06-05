@@ -20,7 +20,7 @@ use taipan::economy::EconomyMode;
 use taipan::game::Game;
 use taipan::rng::Rng;
 use taipan::run::run_game;
-use taipan::state::{from_json, new_save, to_json};
+use taipan::state::{from_json, new_save, save_from, to_json};
 use taipan::ui::StdIo;
 
 const DEFAULT_SEED: u64 = 0xC0FFEE;
@@ -56,12 +56,45 @@ fn main() {
 // ---- Interactive front-end -------------------------------------------------
 
 fn cmd_play(args: &[String]) -> Result<(), String> {
-    let (seed, mode) = parse_seed_mode(args)?;
-    let mut rng = Rng::new(seed);
-    let game = Game::new_with_mode(mode, &mut rng);
+    let save_path = flag_value(args, "--save").unwrap_or_else(|| DEFAULT_SAVE.to_string());
+
+    // Explicit --seed/--mode (or --new) means "start fresh", overwriting any
+    // existing save. Otherwise: resume the save file if it exists, else begin a
+    // new game. So bare `taipan play` resumes your last session.
+    let wants_new = args
+        .iter()
+        .any(|a| a == "--seed" || a == "--mode" || a == "--new");
+    let resume = !wants_new && std::path::Path::new(&save_path).exists();
+
+    let (game, mut rng) = if resume {
+        let json = fs::read_to_string(&save_path)
+            .map_err(|e| format!("error: cannot read {save_path}: {e}"))?;
+        let save = from_json(&json)?;
+        if save.game.is_over() {
+            return Err(format!(
+                "error: the game in {save_path} is already over. Run `taipan play --new` to start again."
+            ));
+        }
+        println!("Resuming your game from {save_path}.");
+        (save.game, Rng::from_state(save.rng_state))
+    } else {
+        let (seed, mode) = parse_seed_mode(args)?;
+        let mut rng = Rng::new(seed);
+        let game = Game::new_with_mode(mode, &mut rng);
+        (game, rng)
+    };
+
     let stdin = stdin();
     let mut io = StdIo::new(BufReader::new(stdin.lock()), stdout().lock());
-    run_game(&mut io, game, &mut rng);
+
+    // Persist after every turn so a crash or ctrl-C never loses progress.
+    let path = save_path.clone();
+    let mut persist = move |g: &Game, r: &Rng| {
+        let save = save_from(g, r, "interactive game in progress");
+        let _ = fs::write(&path, to_json(&save));
+    };
+
+    run_game(&mut io, game, &mut rng, &mut persist);
     Ok(())
 }
 
@@ -132,21 +165,31 @@ fn parse_seed_mode(args: &[String]) -> Result<(u64, EconomyMode), String> {
 const HELP: &str = r#"Taipan! — a trading game on the China Seas. Retire with $1,000,000.
 
 USAGE
-  taipan [play] [--seed N] [--mode classic|trader]
-      Play interactively at a live prompt (for a human).
+  taipan [play] [--save FILE]
+      Play interactively. RESUMES your last game if a save exists, else starts
+      a new one. Saves after every turn. (Default save file: taipan-save.json)
+
+  taipan play --new [--seed N] [--mode classic|trader] [--save FILE]
+      Start a FRESH interactive game, overwriting any existing save. Passing
+      --seed or --mode also implies a fresh game.
 
   taipan new  [--seed N] [--mode classic|trader] [--save FILE]
   taipan step  --action '<verb> [args]' [--save FILE]
   taipan state [--save FILE]
       Stateless turn-by-turn play over a JSON save file. Each `step` applies
-      ONE action and prints the new game state as JSON. (Default save file:
-      taipan-save.json)
+      ONE action and prints the new game state as JSON.
+
+RESUME
+  Just run `taipan play` — with no flags it loads taipan-save.json and picks up
+  where you left off. Both interactive and step play share the same save file,
+  so you can switch between them freely.
 
 OPTIONS
   --seed N       Seed the RNG for a reproducible game (default 0xC0FFEE).
   --mode M       Economy model: `classic` (random prices) or `trader`
                  (ports specialize — learnable buy-here/sell-there routes).
-  --save FILE    Path to the JSON save file for new/step/state.
+  --new          With `play`: force a fresh game, overwriting the save.
+  --save FILE    Path to the JSON save file (default taipan-save.json).
   --action STR   The action to apply this step (see ACTIONS).
 
 ACTIONS (pass to `step --action`)

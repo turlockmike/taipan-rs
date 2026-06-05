@@ -1,5 +1,8 @@
 # Taipan! (Rust)
 
+[![CI](https://github.com/turlockmike/taipan-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/turlockmike/taipan-rs/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A dependency-free Rust recreation of the classic 1982 trading game *Taipan!* —
 build your fortune on the 19th-century China Seas. Buy low in one port, sell
 high in another, fend off pirates, manage your debt to the moneylender, and
@@ -25,17 +28,40 @@ retire with a net worth of **$1,000,000**.
 
 ## Install
 
-Requires a recent stable Rust toolchain ([rustup](https://rustup.rs)).
+### Quick install (macOS / Linux)
+
+Downloads the right prebuilt binary for your platform and installs it to
+`~/.local/bin`:
 
 ```sh
-# From a clone:
-cargo install --path .
-
-# Or run without installing:
-cargo run -- play
+curl -fsSL https://raw.githubusercontent.com/turlockmike/taipan-rs/main/install.sh | sh
 ```
 
-`cargo install` puts a `taipan` binary on your `PATH` (`~/.cargo/bin`).
+Set `TAIPAN_INSTALL_DIR` to choose a different location. Make sure the install
+directory is on your `PATH`.
+
+### Homebrew (macOS / Linux)
+
+```sh
+brew install turlockmike/tap/taipan
+```
+
+### With Cargo
+
+If you have a Rust toolchain ([rustup](https://rustup.rs)):
+
+```sh
+cargo install --git https://github.com/turlockmike/taipan-rs
+
+# or from a clone:
+cargo install --path .
+```
+
+### From source, without installing
+
+```sh
+cargo run -- play
+```
 
 ## Play (interactive)
 

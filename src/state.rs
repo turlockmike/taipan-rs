@@ -302,6 +302,18 @@ pub fn new_save(mode: EconomyMode, seed: u64) -> Save {
     }
 }
 
+/// Snapshot a live interactive game into a `Save`. The interactive loop resolves
+/// combat within a single turn, so a between-turns snapshot is always in the
+/// `Command` state.
+pub fn save_from(game: &Game, rng: &Rng, last_event: &str) -> Save {
+    Save {
+        game: game.clone(),
+        rng_state: rng.state(),
+        pending: Pending::Command,
+        last_event: last_event.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
