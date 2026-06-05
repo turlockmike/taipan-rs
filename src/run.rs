@@ -390,7 +390,7 @@ mod tests {
             };
             run_game(&mut io, game_i, &mut rng_i, &mut persist);
         }
-        let (prices_i, rng_state_i, loc_i) = captured.borrow().clone().unwrap();
+        let (prices_i, rng_state_i, loc_i) = captured.borrow().unwrap();
 
         // Step path: same seed, `travel shanghai`.
         let save = new_save(EconomyMode::Classic, seed);
