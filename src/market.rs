@@ -58,11 +58,15 @@ impl Good {
 
     /// `(low, high)` base price range for this good — classic Taipan! magnitudes.
     fn price_range(self) -> (u32, u32) {
+        // Ranges are tuned so no single good dominates. Absolute spread (what
+        // matters under a fixed hold) is comparable across the premium goods:
+        // arms (~700) edges out opium (~600), so the best route isn't always
+        // opium; silk and general fill the low-capital early game.
         match self {
-            Good::Opium => (500, 1500),
-            Good::Silk => (40, 180),
-            Good::Arms => (350, 900),
-            Good::General => (10, 50),
+            Good::Opium => (700, 1300),
+            Good::Silk => (50, 250),
+            Good::Arms => (300, 1000),
+            Good::General => (10, 60),
         }
     }
 }
@@ -178,7 +182,11 @@ impl Hold {
 
     /// Free space remaining.
     pub fn free(&self) -> u32 {
-        self.capacity - self.used()
+        // Saturating: a corrupt/over-full hold (used > capacity) reports 0 free
+        // rather than panicking on underflow. Load-time validation in state.rs
+        // rejects such saves; this is belt-and-suspenders so no code path can
+        // panic computing free space.
+        self.capacity.saturating_sub(self.used())
     }
 
     /// Units of a specific good on board.
@@ -276,10 +284,10 @@ mod tests {
         let mut rng = Rng::new(2024);
         for _ in 0..1000 {
             let m = Market::generate(&mut rng);
-            assert!((500..=1500).contains(&m.price(Good::Opium)));
-            assert!((40..=180).contains(&m.price(Good::Silk)));
-            assert!((350..=900).contains(&m.price(Good::Arms)));
-            assert!((10..=50).contains(&m.price(Good::General)));
+            assert!((700..=1300).contains(&m.price(Good::Opium)));
+            assert!((50..=250).contains(&m.price(Good::Silk)));
+            assert!((300..=1000).contains(&m.price(Good::Arms)));
+            assert!((10..=60).contains(&m.price(Good::General)));
         }
     }
 

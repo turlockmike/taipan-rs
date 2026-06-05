@@ -32,6 +32,8 @@ pub const GUN_PRICE: u32 = 1_000;
 pub const GUN_HOLD_COST: u32 = 10;
 /// Cost to repair one point of hull, in cash (McHenry's shipyard, Hong Kong).
 pub const REPAIR_PRICE_PER_POINT: u32 = 50;
+/// Cost to expand the hold by one unit, in cash (the shipyard, Hong Kong).
+pub const HOLD_EXPANSION_PRICE: u32 = 500;
 
 /// Why the game ended, if it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,6 +212,18 @@ impl Game {
         self.cash -= cost;
         self.guns += qty;
         Ok(cost)
+    }
+
+    /// Pay to enlarge the cargo hold at the shipyard (Hong Kong). Each unit
+    /// costs `HOLD_EXPANSION_PRICE`. Buys as many units as `cash` covers, up to
+    /// the requested `units`. Returns (units_added, cash_spent).
+    pub fn expand_hold(&mut self, units: u32) -> (u32, u32) {
+        let affordable = self.cash / HOLD_EXPANSION_PRICE;
+        let added = affordable.min(units);
+        let spent = added * HOLD_EXPANSION_PRICE;
+        self.cash -= spent;
+        self.hold.expand(added);
+        (added, spent)
     }
 
     /// Pay to repair the hull at McHenry's (Hong Kong). Buys as many hull points
@@ -440,6 +454,18 @@ mod tests {
         g.borrow(1_000); // would overflow a plain add
         assert_eq!(g.cash, u32::MAX); // saturated, not wrapped
         assert_eq!(g.debt, START_DEBT as u64 + 1_000); // debt still full
+    }
+
+    #[test]
+    fn expand_hold_adds_capacity_capped_by_cash() {
+        let (mut g, _) = new_game();
+        g.cash = 2_500; // affords 5 units at 500 each
+        let cap0 = g.hold.capacity();
+        let (added, spent) = g.expand_hold(10); // want 10, afford 5
+        assert_eq!(added, 5);
+        assert_eq!(spent, 5 * HOLD_EXPANSION_PRICE);
+        assert_eq!(g.hold.capacity(), cap0 + 5);
+        assert_eq!(g.cash, 0);
     }
 
     #[test]

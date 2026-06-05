@@ -56,7 +56,7 @@ pub fn run_game(
         }
 
         io.writeln("");
-        io.write("Shall I (B)uy, (S)ell, (T)ravel, ban(K), buy (G)uns, (R)etire, or (Q)uit? ");
+        io.write("Shall I (B)uy, (S)ell, (T)ravel, ban(K), buy (G)uns, expand (H)old, (R)etire, or (Q)uit? ");
         let choice = match io.read_line() {
             Some(c) => c.to_uppercase(),
             None => break, // input exhausted
@@ -68,6 +68,7 @@ pub fn run_game(
             "T" => do_travel(io, &mut game, rng),
             "K" => do_bank(io, &mut game),
             "G" => do_guns(io, &mut game),
+            "H" => do_hold(io, &mut game),
             "R" => {
                 if game.can_retire() {
                     game.retire();
@@ -206,6 +207,25 @@ fn do_guns(io: &mut dyn Io, game: &mut Game) {
         )),
         Err(e) => io.writeln(&format!("Cannot buy guns: {e}, Taipan.")),
     }
+}
+
+/// Enlarge the cargo hold at the Hong Kong shipyard.
+fn do_hold(io: &mut dyn Io, game: &mut Game) {
+    if game.location != Port::HOME {
+        io.writeln("The shipyard is only in Hong Kong, Taipan.");
+        return;
+    }
+    io.writeln(&format!(
+        "Hold expansion costs {} per unit. Capacity is {}.",
+        crate::game::HOLD_EXPANSION_PRICE,
+        game.hold.capacity()
+    ));
+    let Some(qty) = prompt_qty(io) else { return };
+    let (added, spent) = game.expand_hold(qty);
+    io.writeln(&format!(
+        "Added {added} hold units for {spent}. Capacity now {}.",
+        game.hold.capacity()
+    ));
 }
 
 fn do_travel(io: &mut dyn Io, game: &mut Game, rng: &mut Rng) {

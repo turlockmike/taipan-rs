@@ -116,7 +116,9 @@ pub fn to_json(save: &Save) -> String {
             "  \"net_worth\": {net_worth},\n",
             "  \"guns\": {guns},\n",
             "  \"health\": {health},\n",
+            "  \"at_home\": {at_home},\n",
             "  \"hold_capacity\": {cap},\n",
+            "  \"hold_free\": {hold_free},\n",
             "  \"hold\": {{ \"opium\": {ho}, \"silk\": {hs}, \"arms\": {ha}, \"general\": {hg} }},\n",
             "  \"warehouse\": {{ \"opium\": {wo}, \"silk\": {ws}, \"arms\": {wa}, \"general\": {wg} }},\n",
             "  \"prices\": {{ \"opium\": {po}, \"silk\": {ps}, \"arms\": {pa}, \"general\": {pg} }},\n",
@@ -135,6 +137,12 @@ pub fn to_json(save: &Save) -> String {
         net_worth = g.net_worth(),
         guns = g.guns,
         health = g.health,
+        // Derived convenience fields for programmatic play: `at_home` tells you
+        // whether bank/repair/hold actions are available (and that traveling
+        // "hongkong" would be a no-op), `hold_free` saves recomputing capacity
+        // minus cargo. Both are output-only; the parser ignores them.
+        at_home = g.location == Port::HOME,
+        hold_free = g.hold.free(),
         cap = g.hold.capacity(),
         ho = units[0], hs = units[1], ha = units[2], hg = units[3],
         wo = wh[0], ws = wh[1], wa = wh[2], wg = wh[3],
@@ -498,6 +506,8 @@ mod tests {
             "\"location\"",
             "\"net_worth\"",
             "\"outcome\"",
+            "\"at_home\"",
+            "\"hold_free\"",
         ] {
             assert!(json.contains(key), "output missing {key}");
         }

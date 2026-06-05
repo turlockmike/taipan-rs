@@ -196,6 +196,7 @@ ACTIONS (pass to `step --action`)
   Command actions (when state.pending == "command"):
     buy <good> <qty>      sell <good> <qty>
     buy guns <qty>        (arm the ship: each gun costs cash + hold space)
+    buy hold <qty>        (Hong Kong only: enlarge the cargo hold)
     repair <amt>          (Hong Kong only: spend cash to restore hull)
     travel <port>         deposit <amt>   withdraw <amt>
     pay <amt>             borrow <amt>    store <good> <qty>   (Hong Kong only)
@@ -210,6 +211,8 @@ STATE JSON (what `new`/`step`/`state` print)
     pending      "command" or {"combat":{"enemy_hps":[...],"sunk":N}}
     outcome      "playing" | "won" | "ship_destroyed"
     location, cash, bank, debt, net_worth, guns, health
+    at_home      true at Hong Kong (bank/repair/hold available there)
+    hold_free    free cargo space (capacity minus what you carry)
     prices       {opium,silk,arms,general}  — current port's prices
     hold         {opium,silk,arms,general}  — cargo carried
     last_event   one-line note on what just happened
