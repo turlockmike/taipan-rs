@@ -25,6 +25,8 @@ retire with a net worth of **$1,000,000**.
   feel) and `trader` (ports specialize, creating learnable trade routes).
 - **Two front-ends over one core.** A live interactive prompt for humans, and a
   stateless turn-by-turn JSON interface for scripted/automated play.
+- **Ship management.** Buy cannons, enlarge your hold, and repair hull damage
+  at the Hong Kong shipyard — the classic firepower-vs-cargo tradeoffs.
 
 ## Install
 
@@ -102,11 +104,15 @@ reload. Run `taipan --help` for the full action vocabulary and field reference.
 
 | Context (`pending`) | Actions |
 | --- | --- |
-| `command` | `buy <good> <qty>`, `sell <good> <qty>`, `travel <port>`, `deposit <amt>`, `withdraw <amt>`, `pay <amt>`, `borrow <amt>`, `store <good> <qty>` (Hong Kong only), `retire` |
+| `command` | `buy <good> <qty>`, `sell <good> <qty>`, `travel <port>`, `deposit <amt>`, `withdraw <amt>`, `pay <amt>`, `borrow <amt>`, `store <good> <qty>` (Hong Kong only), `buy guns <qty>`, `buy hold <qty>` (Hong Kong only), `repair <amt>` (Hong Kong only), `retire` |
 | `combat` | `fight`, `run`, `throw <good> <qty>` |
 
 Goods: `opium silk arms general`. Ports: `hongkong shanghai nagasaki saigon
 manila singapore batavia`.
+
+At Hong Kong you can arm your ship (`buy guns` — each cannon costs cash and
+hold space), enlarge the hold (`buy hold`), and repair hull damage (`repair`).
+The state JSON also reports `at_home` (true at Hong Kong) and `hold_free`.
 
 ## Architecture
 

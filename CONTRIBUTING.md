@@ -50,8 +50,9 @@ cargo fmt                   # formatted
   the existing ones.
 - **More arrival events** in `events.rs` (weather, opportunities, Li Yuen's
   counter-offers). Keep them seed-deterministic and add coverage.
-- **Ship upgrades / the moneylender's higher dealings** — there are hooks in
-  `game.rs` (hold expansion, repairs) ready to be wired into the UI.
+- **Deeper fidelity to the 1982 original** — e.g. the periodic economy
+  re-inflation (every 12 months the source bumps base prices), or Li Yuen's
+  protection/lieutenant mechanics. The original BASIC is a good reference.
 
 ## Commit messages
 
