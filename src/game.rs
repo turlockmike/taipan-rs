@@ -189,9 +189,10 @@ impl Game {
         }
     }
 
-    /// Repair the hull, capped at `MAX_HEALTH`.
+    /// Repair the hull, capped at `MAX_HEALTH`. Saturating add so a crafted
+    /// near-max health can't wrap below the cap.
     pub fn repair(&mut self, amount: u32) {
-        self.health = (self.health + amount).min(MAX_HEALTH);
+        self.health = self.health.saturating_add(amount).min(MAX_HEALTH);
     }
 
     /// Buy `qty` cannons. Each costs `GUN_PRICE` in cash and occupies
@@ -205,7 +206,7 @@ impl Game {
         if cost > self.cash {
             return Err("not enough cash for that many guns");
         }
-        let space = GUN_HOLD_COST * qty;
+        let space = GUN_HOLD_COST.checked_mul(qty).ok_or("quantity too large")?;
         if !self.hold.shrink(space) {
             return Err("not enough free hold space for that many guns");
         }
@@ -227,12 +228,17 @@ impl Game {
     }
 
     /// Pay to repair the hull at McHenry's (Hong Kong). Buys as many hull points
-    /// as `amount` cash covers, capped at the damage actually taken. Returns the
-    /// points repaired and the cash spent.
+    /// as `amount` cash covers, capped at the damage taken AND at what `cash`
+    /// can actually afford. Returns the points repaired and the cash spent.
     pub fn repair_hull(&mut self, amount: u32) -> (u32, u32) {
-        let missing = MAX_HEALTH - self.health;
-        let affordable = amount / REPAIR_PRICE_PER_POINT;
-        let points = affordable.min(missing);
+        // Saturating: a crafted save with health > MAX_HEALTH would otherwise
+        // underflow `missing` to a huge number.
+        let missing = MAX_HEALTH.saturating_sub(self.health);
+        // Cap by the budget requested, the damage to fix, AND on-hand cash, so
+        // a large `amount` (a "repair fully" sentinel) can't spend past cash and
+        // underflow it.
+        let budget = amount.min(self.cash);
+        let points = (budget / REPAIR_PRICE_PER_POINT).min(missing);
         let spent = points * REPAIR_PRICE_PER_POINT;
         self.cash -= spent;
         self.health += points;
@@ -249,7 +255,7 @@ impl Game {
     /// home, but the rule is enforced by the caller). Caps at held quantity.
     pub fn store(&mut self, good: Good, qty: u32) -> u32 {
         let moved = self.hold.jettison(good, qty);
-        self.warehouse[good.index()] += moved;
+        self.warehouse[good.index()] = self.warehouse[good.index()].saturating_add(moved);
         moved
     }
 }
@@ -448,12 +454,40 @@ mod tests {
     }
 
     #[test]
+    fn repair_hull_caps_spend_at_cash_no_underflow() {
+        // A huge budget ("repair fully" sentinel) with little cash must not
+        // spend past cash and wrap it. This was a real bug: cash -= spent
+        // underflowed to ~u32::MAX when spent > cash.
+        let (mut g, _) = new_game();
+        g.cash = 100; // only affords 2 points at 50 each
+        g.damage(40); // missing 40, but cash caps us
+        let (points, spent) = g.repair_hull(1_000_000);
+        assert_eq!(points, 2);
+        assert_eq!(spent, 100);
+        assert_eq!(g.cash, 0); // exactly drained, NOT wrapped to billions
+        assert_eq!(g.health, 62);
+    }
+
+    #[test]
     fn borrow_saturates_cash_without_wrapping() {
         let (mut g, _) = new_game();
         g.cash = u32::MAX - 5;
         g.borrow(1_000); // would overflow a plain add
         assert_eq!(g.cash, u32::MAX); // saturated, not wrapped
         assert_eq!(g.debt, START_DEBT as u64 + 1_000); // debt still full
+    }
+
+    #[test]
+    fn repair_hull_handles_crafted_overhealth_without_underflow() {
+        // A crafted save could set health > MAX_HEALTH; repair_hull must not
+        // underflow `MAX_HEALTH - health` into a huge `missing`.
+        let (mut g, _) = new_game();
+        g.health = 250; // above MAX
+        g.cash = 10_000;
+        let (points, spent) = g.repair_hull(10_000);
+        assert_eq!(points, 0); // already over max, nothing to repair
+        assert_eq!(spent, 0);
+        assert_eq!(g.cash, 10_000); // untouched, no wrap
     }
 
     #[test]

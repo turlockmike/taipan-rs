@@ -277,7 +277,9 @@ pub fn from_json(json: &str) -> Result<Save, String> {
     let bank = find_number(json, "bank")?;
     let debt = find_number(json, "debt")?;
     let guns = find_number(json, "guns")? as u32;
-    let health = find_number(json, "health")? as u32;
+    // Clamp health to the legal ceiling: a crafted save with health > MAX would
+    // otherwise feed underflow-prone subtractions downstream.
+    let health = (find_number(json, "health")? as u32).min(crate::game::MAX_HEALTH);
     let cap = find_number(json, "hold_capacity")? as u32;
     let rng_state = find_number(json, "rng_state")?;
 

@@ -173,7 +173,7 @@ impl Battle {
         }
 
         // Survivors return fire.
-        let damage = self.enemies_remaining() * ENEMY_DAMAGE;
+        let damage = self.enemies_remaining().saturating_mul(ENEMY_DAMAGE);
         game.damage(damage);
         let result = if game.health == 0 {
             Some(BattleResult::Sunk)
@@ -205,7 +205,7 @@ impl Battle {
             );
         }
         // Failed escape: free volley.
-        let damage = self.enemies_remaining() * ENEMY_DAMAGE;
+        let damage = self.enemies_remaining().saturating_mul(ENEMY_DAMAGE);
         game.damage(damage);
         let result = if game.health == 0 {
             Some(BattleResult::Sunk)

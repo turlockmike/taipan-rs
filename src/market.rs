@@ -194,9 +194,10 @@ impl Hold {
         self.units[good.index()]
     }
 
-    /// Increase capacity (ship hold upgrades, expand-later hook).
+    /// Increase capacity (ship hold upgrades, expand-later hook). Saturating so
+    /// a crafted near-max capacity can't wrap to near-zero on the next buy.
     pub fn expand(&mut self, extra: u32) {
-        self.capacity += extra;
+        self.capacity = self.capacity.saturating_add(extra);
     }
 
     /// Permanently reserve `amount` of capacity (e.g. cannons take cargo space).
@@ -257,8 +258,10 @@ pub fn sell(
     if qty > held {
         return Err(TradeError::NotEnoughGoods { held });
     }
-    let proceeds = market.price(good) * qty;
-    *cash += proceeds;
+    // Saturating throughout: with crafted-save prices near u32::MAX, price*qty
+    // and the cash accumulation could otherwise wrap, silently dropping cash.
+    let proceeds = market.price(good).saturating_mul(qty);
+    *cash = cash.saturating_add(proceeds);
     hold.units[good.index()] -= qty;
     Ok(proceeds)
 }
@@ -266,6 +269,17 @@ pub fn sell(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sell_into_extreme_price_saturates_not_wraps() {
+        // Crafted near-max price * qty must not wrap cash downward.
+        let m = Market::with_prices([u32::MAX, 0, 0, 0]);
+        let mut hold = Hold::from_parts(60, [2, 0, 0, 0]);
+        let mut cash = 1000;
+        let proceeds = sell(&m, &mut hold, &mut cash, Good::Opium, 2).unwrap();
+        assert_eq!(proceeds, u32::MAX); // saturated, not wrapped to a small value
+        assert_eq!(cash, u32::MAX); // cash saturated upward, never below start
+    }
 
     #[test]
     fn good_parse_prefixes() {
