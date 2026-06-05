@@ -22,10 +22,13 @@ pub const START_GUNS: u32 = 5;
 pub const MAX_HEALTH: u32 = 100;
 /// Net worth needed to retire a winner.
 pub const WIN_TARGET: u64 = 1_000_000;
-/// Debt interest rate applied per port arrival, in percent.
-pub const DEBT_INTEREST_PERCENT: u32 = 10;
-/// Bank interest rate applied per port arrival, in percent.
-pub const BANK_INTEREST_PERCENT: u32 = 1;
+/// Debt interest applied per port arrival, in per-mille (parts per 1000).
+/// 100‰ = 10%, matching the original Taipan! (`DW = DW + DW * .1`).
+pub const DEBT_INTEREST_PER_MILLE: u64 = 100;
+/// Bank interest applied per port arrival, in per-mille. 5‰ = 0.5%, matching
+/// the original (`BA = BA + BA * .005`). Per-mille so 0.5% is exact in integer
+/// math (it can't be a whole percent).
+pub const BANK_INTEREST_PER_MILLE: u64 = 5;
 /// Cost of one cannon, in cash.
 pub const GUN_PRICE: u32 = 1_000;
 /// Hold units one cannon occupies (the classic cargo-vs-firepower tradeoff).
@@ -163,9 +166,9 @@ impl Game {
     /// time can compound it past `u64::MAX`. That should pin the debt at the
     /// ceiling (an unwinnable hole), never panic the process.
     pub fn accrue_interest(&mut self) {
-        let debt_interest = self.debt / 100 * DEBT_INTEREST_PERCENT as u64;
+        let debt_interest = self.debt / 1000 * DEBT_INTEREST_PER_MILLE;
         self.debt = self.debt.saturating_add(debt_interest);
-        let bank_interest = self.bank / 100 * BANK_INTEREST_PERCENT as u64;
+        let bank_interest = self.bank / 1000 * BANK_INTEREST_PER_MILLE;
         self.bank = self.bank.saturating_add(bank_interest);
     }
 
@@ -347,8 +350,8 @@ mod tests {
         g.debt = 5_000;
         g.bank = 10_000;
         g.accrue_interest();
-        assert_eq!(g.debt, 5_500); // +10%
-        assert_eq!(g.bank, 10_100); // +1%
+        assert_eq!(g.debt, 5_500); // +10% (DW * 1.1, original)
+        assert_eq!(g.bank, 10_050); // +0.5% (BA * 1.005, original)
     }
 
     #[test]
