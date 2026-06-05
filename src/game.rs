@@ -126,9 +126,12 @@ impl Game {
         moved
     }
 
-    /// Withdraw from the bank into cash. Caps at the bank balance.
+    /// Withdraw from the bank into cash. Caps at the bank balance *and* at the
+    /// headroom left in `cash` (u32), so the transfer can never silently wrap or
+    /// truncate. Returns the amount actually moved.
     pub fn withdraw(&mut self, amount: u64) -> u64 {
-        let moved = amount.min(self.bank);
+        let headroom = (u32::MAX - self.cash) as u64;
+        let moved = amount.min(self.bank).min(headroom);
         self.bank -= moved;
         self.cash += moved as u32;
         moved
@@ -144,8 +147,10 @@ impl Game {
     }
 
     /// Borrow more from Elder Brother Wu, increasing both cash and debt.
+    /// Cash saturates at `u32::MAX` so a huge borrow can't wrap it; debt always
+    /// records the full amount borrowed (it's u64).
     pub fn borrow(&mut self, amount: u32) {
-        self.cash += amount;
+        self.cash = self.cash.saturating_add(amount);
         self.debt += amount as u64;
     }
 
@@ -426,5 +431,25 @@ mod tests {
         let (points2, _) = g.repair_hull(10_000);
         assert_eq!(points2, 10);
         assert_eq!(g.health, MAX_HEALTH);
+    }
+
+    #[test]
+    fn borrow_saturates_cash_without_wrapping() {
+        let (mut g, _) = new_game();
+        g.cash = u32::MAX - 5;
+        g.borrow(1_000); // would overflow a plain add
+        assert_eq!(g.cash, u32::MAX); // saturated, not wrapped
+        assert_eq!(g.debt, START_DEBT as u64 + 1_000); // debt still full
+    }
+
+    #[test]
+    fn withdraw_does_not_overflow_cash() {
+        let (mut g, _) = new_game();
+        g.cash = u32::MAX - 100;
+        g.bank = 10_000;
+        let moved = g.withdraw(10_000); // only 100 headroom in cash
+        assert_eq!(moved, 100);
+        assert_eq!(g.cash, u32::MAX);
+        assert_eq!(g.bank, 9_900); // rest stays in the bank
     }
 }

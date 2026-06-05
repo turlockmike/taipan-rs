@@ -227,15 +227,18 @@ fn do_travel(io: &mut dyn Io, game: &mut Game, rng: &mut Rng) {
 
     io.writeln(&format!("Setting sail for {}...", dest.name()));
 
-    // Roll an arrival event *before* docking so combat can sink us en route.
-    let event = roll(game, rng);
-    narrate_event(io, game, rng, event);
-    if game.is_over() {
-        return;
-    }
-
+    // Dock first (this rolls the destination's market), THEN roll the arrival
+    // event. Order matters: rolling before `travel_to` would mutate the origin
+    // market that `travel_to` immediately discards — a price spike would be
+    // narrated but never take effect. Docking first also keeps this identical
+    // to the step interface (`action.rs::do_travel`), so the same seed + action
+    // consumes RNG in the same order across both front-ends and a save written
+    // by one replays faithfully in the other.
     game.travel_to(dest, rng);
     io.writeln(&format!("Arrived at {}.", dest.name()));
+
+    let event = roll(game, rng);
+    narrate_event(io, game, rng, event);
 }
 
 fn narrate_event(io: &mut dyn Io, game: &mut Game, rng: &mut Rng, event: Event) {
@@ -361,7 +364,50 @@ fn announce_outcome(io: &mut dyn Io, game: &Game) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::economy::EconomyMode;
     use crate::ui::ScriptedIo;
+
+    #[test]
+    fn travel_matches_step_interface_for_same_seed() {
+        // Regression guard: the interactive loop and the stateless step
+        // interface must process a travel identically (dock, then roll the
+        // arrival event) so a save written by one replays in the other. We
+        // compare the resulting market + RNG state after one travel to Shanghai.
+        use crate::action::apply;
+        use crate::market::Good;
+        use crate::state::{new_save, Pending};
+
+        // Interactive path: travel to Shanghai (menu 2), then quit. Capture the
+        // final game + rng via the persist hook.
+        let seed = 2024;
+        let mut rng_i = Rng::new(seed);
+        let game_i = Game::new_with_mode(EconomyMode::Classic, &mut rng_i);
+        let mut io = ScriptedIo::new(&["T", "2", "Q"]);
+        let captured = std::cell::RefCell::new(None);
+        {
+            let mut persist = |g: &Game, r: &Rng| {
+                *captured.borrow_mut() = Some((g.market.prices(), r.state(), g.location));
+            };
+            run_game(&mut io, game_i, &mut rng_i, &mut persist);
+        }
+        let (prices_i, rng_state_i, loc_i) = captured.borrow().clone().unwrap();
+
+        // Step path: same seed, `travel shanghai`.
+        let save = new_save(EconomyMode::Classic, seed);
+        let after = apply(&save, "travel shanghai").unwrap();
+        // Only compare when the step path didn't land in combat (combat would
+        // mean the interactive path also fought, changing the comparison shape).
+        if after.pending == Pending::Command {
+            assert_eq!(
+                prices_i,
+                after.game.market.prices(),
+                "market diverged between interactive and step travel"
+            );
+            assert_eq!(rng_state_i, after.rng_state, "RNG state diverged");
+            assert_eq!(loc_i, after.game.location);
+            let _ = Good::Opium; // keep import meaningful
+        }
+    }
 
     #[test]
     fn quit_ends_cleanly() {
