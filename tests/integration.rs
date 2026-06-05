@@ -57,10 +57,10 @@ fn economy_permits_a_winning_run() {
     // "cheap" when it lands in the bottom third of its range.
     fn range_of(good: Good) -> (u32, u32) {
         match good {
-            Good::Opium => (500, 1500),
-            Good::Silk => (40, 180),
-            Good::Arms => (350, 900),
-            Good::General => (10, 50),
+            Good::Opium => (700, 1300),
+            Good::Silk => (50, 250),
+            Good::Arms => (300, 1000),
+            Good::General => (10, 60),
         }
     }
 
@@ -128,10 +128,10 @@ fn trader_economy_permits_a_winning_run() {
 
     fn range_of(good: Good) -> (u32, u32) {
         match good {
-            Good::Opium => (500, 1500),
-            Good::Silk => (40, 180),
-            Good::Arms => (350, 900),
-            Good::General => (10, 50),
+            Good::Opium => (700, 1300),
+            Good::Silk => (50, 250),
+            Good::Arms => (300, 1000),
+            Good::General => (10, 60),
         }
     }
 

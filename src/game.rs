@@ -32,6 +32,8 @@ pub const GUN_PRICE: u32 = 1_000;
 pub const GUN_HOLD_COST: u32 = 10;
 /// Cost to repair one point of hull, in cash (McHenry's shipyard, Hong Kong).
 pub const REPAIR_PRICE_PER_POINT: u32 = 50;
+/// Cost to expand the hold by one unit, in cash (the shipyard, Hong Kong).
+pub const HOLD_EXPANSION_PRICE: u32 = 500;
 
 /// Why the game ended, if it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,9 +128,12 @@ impl Game {
         moved
     }
 
-    /// Withdraw from the bank into cash. Caps at the bank balance.
+    /// Withdraw from the bank into cash. Caps at the bank balance *and* at the
+    /// headroom left in `cash` (u32), so the transfer can never silently wrap or
+    /// truncate. Returns the amount actually moved.
     pub fn withdraw(&mut self, amount: u64) -> u64 {
-        let moved = amount.min(self.bank);
+        let headroom = (u32::MAX - self.cash) as u64;
+        let moved = amount.min(self.bank).min(headroom);
         self.bank -= moved;
         self.cash += moved as u32;
         moved
@@ -144,8 +149,10 @@ impl Game {
     }
 
     /// Borrow more from Elder Brother Wu, increasing both cash and debt.
+    /// Cash saturates at `u32::MAX` so a huge borrow can't wrap it; debt always
+    /// records the full amount borrowed (it's u64).
     pub fn borrow(&mut self, amount: u32) {
-        self.cash += amount;
+        self.cash = self.cash.saturating_add(amount);
         self.debt += amount as u64;
     }
 
@@ -205,6 +212,18 @@ impl Game {
         self.cash -= cost;
         self.guns += qty;
         Ok(cost)
+    }
+
+    /// Pay to enlarge the cargo hold at the shipyard (Hong Kong). Each unit
+    /// costs `HOLD_EXPANSION_PRICE`. Buys as many units as `cash` covers, up to
+    /// the requested `units`. Returns (units_added, cash_spent).
+    pub fn expand_hold(&mut self, units: u32) -> (u32, u32) {
+        let affordable = self.cash / HOLD_EXPANSION_PRICE;
+        let added = affordable.min(units);
+        let spent = added * HOLD_EXPANSION_PRICE;
+        self.cash -= spent;
+        self.hold.expand(added);
+        (added, spent)
     }
 
     /// Pay to repair the hull at McHenry's (Hong Kong). Buys as many hull points
@@ -426,5 +445,37 @@ mod tests {
         let (points2, _) = g.repair_hull(10_000);
         assert_eq!(points2, 10);
         assert_eq!(g.health, MAX_HEALTH);
+    }
+
+    #[test]
+    fn borrow_saturates_cash_without_wrapping() {
+        let (mut g, _) = new_game();
+        g.cash = u32::MAX - 5;
+        g.borrow(1_000); // would overflow a plain add
+        assert_eq!(g.cash, u32::MAX); // saturated, not wrapped
+        assert_eq!(g.debt, START_DEBT as u64 + 1_000); // debt still full
+    }
+
+    #[test]
+    fn expand_hold_adds_capacity_capped_by_cash() {
+        let (mut g, _) = new_game();
+        g.cash = 2_500; // affords 5 units at 500 each
+        let cap0 = g.hold.capacity();
+        let (added, spent) = g.expand_hold(10); // want 10, afford 5
+        assert_eq!(added, 5);
+        assert_eq!(spent, 5 * HOLD_EXPANSION_PRICE);
+        assert_eq!(g.hold.capacity(), cap0 + 5);
+        assert_eq!(g.cash, 0);
+    }
+
+    #[test]
+    fn withdraw_does_not_overflow_cash() {
+        let (mut g, _) = new_game();
+        g.cash = u32::MAX - 100;
+        g.bank = 10_000;
+        let moved = g.withdraw(10_000); // only 100 headroom in cash
+        assert_eq!(moved, 100);
+        assert_eq!(g.cash, u32::MAX);
+        assert_eq!(g.bank, 9_900); // rest stays in the bank
     }
 }

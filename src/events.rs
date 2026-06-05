@@ -48,10 +48,11 @@ pub fn roll(game: &mut Game, rng: &mut Rng) -> Event {
     }
 
     if game.cash > 0 && rng.chance(1, 8) {
-        // Li Yuen takes a slice of your on-hand cash (10%–30%).
+        // Li Yuen takes a slice of your on-hand cash (10%–30%). Compute the
+        // percentage in u64 so a large cash balance can't overflow the multiply.
         let pct = rng.range(10, 30);
-        let taken = (game.cash * pct / 100).max(1);
-        game.cash -= taken;
+        let taken = ((game.cash as u64 * pct as u64 / 100) as u32).max(1);
+        game.cash = game.cash.saturating_sub(taken);
         return Event::LiYuenExtortion { taken };
     }
 
@@ -143,6 +144,25 @@ mod tests {
             g.cash = 0;
             if let Event::LiYuenExtortion { .. } = roll(&mut g, &mut rng) {
                 panic!("extorted a broke trader");
+            }
+        }
+    }
+
+    #[test]
+    fn extortion_does_not_overflow_on_huge_cash() {
+        // Cash above u32::MAX/30 would wrap a u32 `cash * pct`. Drive many rolls
+        // at a large balance; the taken amount must stay a sane fraction and
+        // cash must only ever decrease, never wrap upward.
+        let mut rng = Rng::new(77);
+        for _ in 0..5000 {
+            let mut g = game();
+            g.cash = 4_000_000_000; // > u32::MAX/30
+            let before = g.cash;
+            if let Event::LiYuenExtortion { taken } = roll(&mut g, &mut rng) {
+                assert!(taken <= before, "taken {taken} exceeds cash {before}");
+                assert!(g.cash <= before, "cash grew after extortion (wrapped)");
+                // 10-30% of 4e9 is ~0.4-1.2e9 — sanity bound.
+                assert!(taken >= before / 100, "taken {taken} implausibly small");
             }
         }
     }

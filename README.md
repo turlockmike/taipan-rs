@@ -80,21 +80,23 @@ Hong Kong, survive the pirates, and retire at $1M.
 The interactive loop blocks on stdin, which is awkward to drive
 programmatically. The `new` / `step` / `state` subcommands provide a
 **stateless, one-action-at-a-time** interface over a JSON save file. Each call
-applies a single action and prints the resulting game state as JSON.
+applies a single action and prints the resulting game state as one line of
+compact JSON (NDJSON), so it composes with `jq` and line-oriented tools.
 
 ```sh
-taipan new  --seed 17 --mode trader --save g.json   # start; prints state JSON
+taipan new  --seed 17 --mode trader --save g.json   # start; prints state
 taipan step --save g.json --action 'buy general 26'
-taipan step --save g.json --action 'travel singapore'
+taipan step --save g.json --action 'travel singapore' | jq '.net_worth'
 # If the returned JSON has pending == "combat", choose fight/run/throw:
 taipan step --save g.json --action 'fight'
 taipan step --save g.json --action 'sell general 26'
-taipan state --save g.json                          # re-read current state
+taipan state --save g.json | jq .                   # readable view for humans
 ```
 
-The save file carries the entire game between invocations — including the RNG
-state, so determinism survives a reload. Run `taipan --help` for the full
-action vocabulary and the JSON field reference.
+Each call prints a single JSON line — pipe through `jq .` to pretty-print, or
+`jq '.cash'` / `jq '.hold'` to pull fields. The save file carries the entire
+game between invocations — including the RNG state, so determinism survives a
+reload. Run `taipan --help` for the full action vocabulary and field reference.
 
 ### Actions
 

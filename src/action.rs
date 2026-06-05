@@ -89,7 +89,8 @@ fn apply_command(
 
     let event = match verb {
         "buy" => {
-            // `buy guns N` arms the ship; otherwise `buy <good> N` is cargo.
+            // `buy guns N` arms the ship, `buy hold N` enlarges the hold (HK
+            // only); otherwise `buy <good> N` is cargo.
             if args.first().map(|s| s.as_str()) == Some("guns") {
                 let qty = args
                     .get(1)
@@ -98,6 +99,20 @@ fn apply_command(
                     .map_err(|_| "quantity must be a number".to_string())?;
                 let cost = game.buy_guns(qty).map_err(|e| format!("cannot buy guns: {e}"))?;
                 format!("Bought {qty} guns for {cost}. Now {} guns.", game.guns)
+            } else if args.first().map(|s| s.as_str()) == Some("hold") {
+                if game.location != Port::HOME {
+                    return Err("the shipyard is only in Hong Kong".to_string());
+                }
+                let qty = args
+                    .get(1)
+                    .ok_or("expected a quantity")?
+                    .parse::<u32>()
+                    .map_err(|_| "quantity must be a number".to_string())?;
+                let (added, spent) = game.expand_hold(qty);
+                format!(
+                    "Expanded hold by {added} for {spent}. Capacity now {}.",
+                    game.hold.capacity()
+                )
             } else {
                 let (good, qty) = good_and_qty(args)?;
                 let cost = game
@@ -413,6 +428,24 @@ mod tests {
         let after = apply(&save, "buy guns 2").unwrap();
         assert_eq!(after.game.guns, before + 2);
         assert!(after.last_event.contains("Bought 2 guns"));
+    }
+
+    #[test]
+    fn buy_hold_expands_capacity_at_hong_kong_only() {
+        let mut save = fresh(); // at Hong Kong
+        save.game.cash = 5_000;
+        let cap0 = save.game.hold.capacity();
+        let after = apply(&save, "buy hold 4").unwrap();
+        assert_eq!(after.game.hold.capacity(), cap0 + 4);
+        assert!(after.last_event.contains("Expanded hold"));
+
+        // Away from home it's rejected.
+        let mut away = fresh();
+        away.game.location = crate::travel::Port::Shanghai;
+        away.game.cash = 5_000;
+        assert!(apply(&away, "buy hold 4")
+            .unwrap_err()
+            .contains("Hong Kong"));
     }
 
     #[test]

@@ -17,6 +17,11 @@ use crate::market::{Good, Hold, Market};
 use crate::rng::Rng;
 use crate::travel::Port;
 
+/// Save-format version. Bump when the on-disk shape changes incompatibly so
+/// `from_json` can reject old saves with a clear message instead of failing on
+/// a mysteriously-missing field.
+pub const SAVE_VERSION: u32 = 1;
+
 /// What the game is waiting for — determines which actions are valid next.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pending {
@@ -76,14 +81,14 @@ fn json_escape(s: &str) -> String {
     out
 }
 
-/// Serialize a save to a pretty, stable JSON string.
+/// Serialize a save to one line of compact JSON (NDJSON), newline-terminated.
 pub fn to_json(save: &Save) -> String {
     let g = &save.game;
     let prices = g.market.prices();
     let units = g.hold.units();
     let wh = g.warehouse;
 
-    // pending block
+    // pending block (compact)
     let pending = match &save.pending {
         Pending::Command => "\"command\"".to_string(),
         Pending::Combat { enemies, sunk } => {
@@ -91,32 +96,40 @@ pub fn to_json(save: &Save) -> String {
                 .iter()
                 .map(|h| h.to_string())
                 .collect::<Vec<_>>()
-                .join(", ");
-            format!("{{ \"combat\": {{ \"enemy_hps\": [{list}], \"sunk\": {sunk} }} }}")
+                .join(",");
+            format!("{{\"combat\":{{\"enemy_hps\":[{list}],\"sunk\":{sunk}}}}}")
         }
     };
 
+    // One compact JSON object on a single line, newline-terminated — NDJSON.
+    // The sole consumer is programmatic (the step interface), so this composes
+    // with `jq`, line readers, and stream appenders. For a human-readable view,
+    // pipe through `jq .`.
     format!(
         concat!(
-            "{{\n",
-            "  \"pending\": {pending},\n",
-            "  \"last_event\": \"{event}\",\n",
-            "  \"outcome\": \"{outcome}\",\n",
-            "  \"mode\": \"{mode}\",\n",
-            "  \"location\": \"{location}\",\n",
-            "  \"cash\": {cash},\n",
-            "  \"bank\": {bank},\n",
-            "  \"debt\": {debt},\n",
-            "  \"net_worth\": {net_worth},\n",
-            "  \"guns\": {guns},\n",
-            "  \"health\": {health},\n",
-            "  \"hold_capacity\": {cap},\n",
-            "  \"hold\": {{ \"opium\": {ho}, \"silk\": {hs}, \"arms\": {ha}, \"general\": {hg} }},\n",
-            "  \"warehouse\": {{ \"opium\": {wo}, \"silk\": {ws}, \"arms\": {wa}, \"general\": {wg} }},\n",
-            "  \"prices\": {{ \"opium\": {po}, \"silk\": {ps}, \"arms\": {pa}, \"general\": {pg} }},\n",
-            "  \"rng_state\": {rng}\n",
+            "{{",
+            "\"version\":{version},",
+            "\"pending\":{pending},",
+            "\"last_event\":\"{event}\",",
+            "\"outcome\":\"{outcome}\",",
+            "\"mode\":\"{mode}\",",
+            "\"location\":\"{location}\",",
+            "\"cash\":{cash},",
+            "\"bank\":{bank},",
+            "\"debt\":{debt},",
+            "\"net_worth\":{net_worth},",
+            "\"guns\":{guns},",
+            "\"health\":{health},",
+            "\"at_home\":{at_home},",
+            "\"hold_capacity\":{cap},",
+            "\"hold_free\":{hold_free},",
+            "\"hold\":{{\"opium\":{ho},\"silk\":{hs},\"arms\":{ha},\"general\":{hg}}},",
+            "\"warehouse\":{{\"opium\":{wo},\"silk\":{ws},\"arms\":{wa},\"general\":{wg}}},",
+            "\"prices\":{{\"opium\":{po},\"silk\":{ps},\"arms\":{pa},\"general\":{pg}}},",
+            "\"rng_state\":{rng}",
             "}}\n"
         ),
+        version = SAVE_VERSION,
         pending = pending,
         event = json_escape(&save.last_event),
         outcome = outcome_str(g.outcome),
@@ -128,10 +141,25 @@ pub fn to_json(save: &Save) -> String {
         net_worth = g.net_worth(),
         guns = g.guns,
         health = g.health,
+        // Derived convenience fields for programmatic play: `at_home` tells you
+        // whether bank/repair/hold actions are available (and that traveling
+        // "hongkong" would be a no-op), `hold_free` saves recomputing capacity
+        // minus cargo. Both are output-only; the parser ignores them.
+        at_home = g.location == Port::HOME,
+        hold_free = g.hold.free(),
         cap = g.hold.capacity(),
-        ho = units[0], hs = units[1], ha = units[2], hg = units[3],
-        wo = wh[0], ws = wh[1], wa = wh[2], wg = wh[3],
-        po = prices[0], ps = prices[1], pa = prices[2], pg = prices[3],
+        ho = units[0],
+        hs = units[1],
+        ha = units[2],
+        hg = units[3],
+        wo = wh[0],
+        ws = wh[1],
+        wa = wh[2],
+        wg = wh[3],
+        po = prices[0],
+        ps = prices[1],
+        pa = prices[2],
+        pg = prices[3],
         rng = save.rng_state,
     )
 }
@@ -169,11 +197,26 @@ fn find_string(json: &str, key: &str) -> Result<String, String> {
     let open = rest
         .find('"')
         .ok_or_else(|| format!("field '{key}' is not a string"))?;
-    let after = &rest[open + 1..];
-    let close = after
-        .find('"')
-        .ok_or_else(|| format!("field '{key}' string not terminated"))?;
-    Ok(after[..close].to_string())
+    // Walk the value honoring backslash escapes, so a `\"` inside the string
+    // doesn't end it prematurely. This inverts `json_escape`.
+    let mut out = String::new();
+    let mut chars = rest[open + 1..].chars();
+    loop {
+        match chars.next() {
+            None => return Err(format!("field '{key}' string not terminated")),
+            Some('"') => break, // unescaped closing quote
+            Some('\\') => match chars.next() {
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(other) => out.push(other), // unknown escape: keep literal
+                None => return Err(format!("field '{key}' ends in a dangling escape")),
+            },
+            Some(c) => out.push(c),
+        }
+    }
+    Ok(out)
 }
 
 /// Extract a nested numeric field like `"hold": { "opium": 3, ... }`.
@@ -214,6 +257,18 @@ fn parse_outcome(s: &str) -> Result<Option<Outcome>, String> {
 
 /// Parse a `Save` from JSON produced by [`to_json`].
 pub fn from_json(json: &str) -> Result<Save, String> {
+    // Version gate first: a save from an incompatible format gets a clear
+    // message, not a confusing missing-field error deeper in parsing. Saves
+    // predating the version field (v0) are also rejected explicitly.
+    let version = find_number(json, "version").map_err(|_| {
+        format!("save predates version {SAVE_VERSION} (no version field); please start a new game")
+    })? as u32;
+    if version != SAVE_VERSION {
+        return Err(format!(
+            "save is version {version}, but this build uses version {SAVE_VERSION}; please start a new game"
+        ));
+    }
+
     let mode = parse_mode(&find_string(json, "mode")?)?;
     let location = parse_port(&find_string(json, "location")?)?;
     let outcome = parse_outcome(&find_string(json, "outcome")?)?;
@@ -232,6 +287,16 @@ pub fn from_json(json: &str) -> Result<Save, String> {
         find_nested(json, "hold", "arms")? as u32,
         find_nested(json, "hold", "general")? as u32,
     ];
+    // Guard the hold invariant: cargo carried must not exceed capacity. A
+    // corrupt or hand-edited save violating this would make `Hold::free()`
+    // (capacity - used) underflow on u32, silently corrupting all later
+    // capacity math. Reject it loudly instead.
+    let used: u32 = units.iter().sum();
+    if used > cap {
+        return Err(format!(
+            "corrupt save: hold carries {used} units but capacity is {cap}"
+        ));
+    }
     let warehouse = [
         find_nested(json, "warehouse", "opium")? as u32,
         find_nested(json, "warehouse", "silk")? as u32,
@@ -402,6 +467,48 @@ mod tests {
     }
 
     #[test]
+    fn last_event_with_quotes_round_trips() {
+        // A narration containing a double-quote must survive encode -> decode
+        // intact (find_string honors the \" escape json_escape emits).
+        let mut save = sample_save();
+        save.last_event = r#"The "Sea Witch" attacks! Tabs:	end"#.to_string();
+        let back = from_json(&to_json(&save)).unwrap();
+        assert_eq!(back.last_event, save.last_event);
+    }
+
+    #[test]
+    fn save_carries_version_and_rejects_mismatch() {
+        let json = to_json(&sample_save());
+        assert!(
+            json.contains("\"version\":1"),
+            "save should carry a version"
+        );
+        // A save with a wrong version is rejected with a clear message.
+        let bumped = json.replace("\"version\":1", "\"version\":999");
+        let err = from_json(&bumped).unwrap_err();
+        assert!(
+            err.contains("version"),
+            "expected version error, got: {err}"
+        );
+        // A save with no version (legacy v0) is also rejected.
+        let stripped = json.replace("\"version\":1,", "");
+        assert!(from_json(&stripped).is_err());
+    }
+
+    #[test]
+    fn corrupt_hold_over_capacity_is_rejected() {
+        // Hand-build a save where the hold carries more than its capacity.
+        let mut save = sample_save();
+        save.game.hold = Hold::from_parts(10, [20, 0, 0, 0]); // 20 > 10
+        let json = to_json(&save);
+        let err = from_json(&json).unwrap_err();
+        assert!(
+            err.contains("capacity"),
+            "expected capacity error, got: {err}"
+        );
+    }
+
+    #[test]
     fn emitted_json_is_machine_parseable_shape() {
         // Sanity: the output contains the keys an agent reads to decide a move.
         let json = to_json(&sample_save());
@@ -412,6 +519,8 @@ mod tests {
             "\"location\"",
             "\"net_worth\"",
             "\"outcome\"",
+            "\"at_home\"",
+            "\"hold_free\"",
         ] {
             assert!(json.contains(key), "output missing {key}");
         }
