@@ -195,6 +195,8 @@ OPTIONS
 ACTIONS (pass to `step --action`)
   Command actions (when state.pending == "command"):
     buy <good> <qty>      sell <good> <qty>
+    buy guns <qty>        (arm the ship: each gun costs cash + hold space)
+    repair <amt>          (Hong Kong only: spend cash to restore hull)
     travel <port>         deposit <amt>   withdraw <amt>
     pay <amt>             borrow <amt>    store <good> <qty>   (Hong Kong only)
     retire                (only when net_worth >= 1000000)

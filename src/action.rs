@@ -89,11 +89,30 @@ fn apply_command(
 
     let event = match verb {
         "buy" => {
-            let (good, qty) = good_and_qty(args)?;
-            let cost = game
-                .buy(good, qty)
-                .map_err(|e| format!("cannot buy: {e:?}"))?;
-            format!("Bought {qty} {} for {cost}.", good.name())
+            // `buy guns N` arms the ship; otherwise `buy <good> N` is cargo.
+            if args.first().map(|s| s.as_str()) == Some("guns") {
+                let qty = args
+                    .get(1)
+                    .ok_or("expected a quantity")?
+                    .parse::<u32>()
+                    .map_err(|_| "quantity must be a number".to_string())?;
+                let cost = game.buy_guns(qty).map_err(|e| format!("cannot buy guns: {e}"))?;
+                format!("Bought {qty} guns for {cost}. Now {} guns.", game.guns)
+            } else {
+                let (good, qty) = good_and_qty(args)?;
+                let cost = game
+                    .buy(good, qty)
+                    .map_err(|e| format!("cannot buy: {e:?}"))?;
+                format!("Bought {qty} {} for {cost}.", good.name())
+            }
+        }
+        "repair" => {
+            if game.location != Port::HOME {
+                return Err("McHenry's shipyard is only in Hong Kong".to_string());
+            }
+            let amt = parse_amount(args)?;
+            let (points, spent) = game.repair_hull(amt);
+            format!("Repaired {points} hull for {spent}. Hull now {}.", game.health)
         }
         "sell" => {
             let (good, qty) = good_and_qty(args)?;
@@ -150,7 +169,7 @@ fn apply_command(
         }
         other => {
             return Err(format!(
-                "unknown command '{other}'. Valid: buy sell travel deposit withdraw pay borrow store retire"
+                "unknown command '{other}'. Valid: buy sell travel deposit withdraw pay borrow store repair retire"
             ))
         }
     };
@@ -384,6 +403,34 @@ mod tests {
         let save = fresh(); // starts at Hong Kong
         let err = apply(&save, "travel hongkong").unwrap_err();
         assert!(err.contains("already there"));
+    }
+
+    #[test]
+    fn buy_guns_arms_the_ship_through_apply() {
+        let mut save = fresh();
+        save.game.cash = 5_000;
+        let before = save.game.guns;
+        let after = apply(&save, "buy guns 2").unwrap();
+        assert_eq!(after.game.guns, before + 2);
+        assert!(after.last_event.contains("Bought 2 guns"));
+    }
+
+    #[test]
+    fn repair_only_at_hong_kong() {
+        // Damaged ship away from home: repair rejected.
+        let mut save = fresh();
+        save.game.location = crate::travel::Port::Shanghai;
+        save.game.health = 50;
+        save.game.cash = 5_000;
+        assert!(apply(&save, "repair 1000")
+            .unwrap_err()
+            .contains("Hong Kong"));
+
+        // At home: repair works.
+        save.game.location = crate::travel::Port::HongKong;
+        let after = apply(&save, "repair 1000").unwrap();
+        assert!(after.game.health > 50);
+        assert!(after.last_event.contains("Repaired"));
     }
 
     #[test]

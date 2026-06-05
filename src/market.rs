@@ -191,6 +191,17 @@ impl Hold {
         self.capacity += extra;
     }
 
+    /// Permanently reserve `amount` of capacity (e.g. cannons take cargo space).
+    /// Returns false without changing anything if that much free space isn't
+    /// available right now.
+    pub fn shrink(&mut self, amount: u32) -> bool {
+        if amount > self.free() {
+            return false;
+        }
+        self.capacity -= amount;
+        true
+    }
+
     /// Remove up to `n` units of a good without payment (used when thrown to
     /// pirates). Returns how many were actually removed.
     pub fn jettison(&mut self, good: Good, n: u32) -> u32 {

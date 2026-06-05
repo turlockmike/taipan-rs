@@ -56,7 +56,7 @@ pub fn run_game(
         }
 
         io.writeln("");
-        io.write("Shall I (B)uy, (S)ell, (T)ravel, ban(K), (R)etire, or (Q)uit? ");
+        io.write("Shall I (B)uy, (S)ell, (T)ravel, ban(K), buy (G)uns, (R)etire, or (Q)uit? ");
         let choice = match io.read_line() {
             Some(c) => c.to_uppercase(),
             None => break, // input exhausted
@@ -67,6 +67,7 @@ pub fn run_game(
             "S" => do_sell(io, &mut game),
             "T" => do_travel(io, &mut game, rng),
             "K" => do_bank(io, &mut game),
+            "G" => do_guns(io, &mut game),
             "R" => {
                 if game.can_retire() {
                     game.retire();
@@ -161,7 +162,7 @@ fn do_bank(io: &mut dyn Io, game: &mut Game) {
         io.writeln("The bank and Elder Brother Wu are only in Hong Kong, Taipan.");
         return;
     }
-    io.write("(D)eposit, (W)ithdraw, or (P)ay debt? ");
+    io.write("(D)eposit, (W)ithdraw, (P)ay debt, or (R)epair ship? ");
     let Some(action) = io.read_line() else { return };
     let Some(amount) = prompt_qty(io) else { return };
     match action.to_uppercase().as_str() {
@@ -177,7 +178,33 @@ fn do_bank(io: &mut dyn Io, game: &mut Game) {
             let paid = game.pay_debt(amount);
             io.writeln(&format!("Paid {paid} toward debt. Debt now {}.", game.debt));
         }
+        "R" => {
+            let (points, spent) = game.repair_hull(amount);
+            io.writeln(&format!(
+                "McHenry repairs {points} hull for {spent}. Hull now {}/{}.",
+                game.health,
+                crate::game::MAX_HEALTH
+            ));
+        }
         other => io.writeln(&format!("'{other}' is not a bank action, Taipan.")),
+    }
+}
+
+/// Buy cannons. Each costs cash and takes hold space — firepower vs. cargo.
+fn do_guns(io: &mut dyn Io, game: &mut Game) {
+    io.writeln(&format!(
+        "Cannons cost {} each and take {} hold units. You have {} guns.",
+        crate::game::GUN_PRICE,
+        crate::game::GUN_HOLD_COST,
+        game.guns
+    ));
+    let Some(qty) = prompt_qty(io) else { return };
+    match game.buy_guns(qty) {
+        Ok(cost) => io.writeln(&format!(
+            "Bought {qty} guns for {cost}. You now have {} guns.",
+            game.guns
+        )),
+        Err(e) => io.writeln(&format!("Cannot buy guns: {e}, Taipan.")),
     }
 }
 

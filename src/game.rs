@@ -26,6 +26,12 @@ pub const WIN_TARGET: u64 = 1_000_000;
 pub const DEBT_INTEREST_PERCENT: u32 = 10;
 /// Bank interest rate applied per port arrival, in percent.
 pub const BANK_INTEREST_PERCENT: u32 = 1;
+/// Cost of one cannon, in cash.
+pub const GUN_PRICE: u32 = 1_000;
+/// Hold units one cannon occupies (the classic cargo-vs-firepower tradeoff).
+pub const GUN_HOLD_COST: u32 = 10;
+/// Cost to repair one point of hull, in cash (McHenry's shipyard, Hong Kong).
+pub const REPAIR_PRICE_PER_POINT: u32 = 50;
 
 /// Why the game ended, if it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +185,39 @@ impl Game {
     /// Repair the hull, capped at `MAX_HEALTH`.
     pub fn repair(&mut self, amount: u32) {
         self.health = (self.health + amount).min(MAX_HEALTH);
+    }
+
+    /// Buy `qty` cannons. Each costs `GUN_PRICE` in cash and occupies
+    /// `GUN_HOLD_COST` units of hold space (the classic firepower-vs-cargo
+    /// tradeoff). Returns the total cost, or an error naming what's short.
+    pub fn buy_guns(&mut self, qty: u32) -> Result<u32, &'static str> {
+        if qty == 0 {
+            return Err("buy at least one gun");
+        }
+        let cost = GUN_PRICE.checked_mul(qty).ok_or("quantity too large")?;
+        if cost > self.cash {
+            return Err("not enough cash for that many guns");
+        }
+        let space = GUN_HOLD_COST * qty;
+        if !self.hold.shrink(space) {
+            return Err("not enough free hold space for that many guns");
+        }
+        self.cash -= cost;
+        self.guns += qty;
+        Ok(cost)
+    }
+
+    /// Pay to repair the hull at McHenry's (Hong Kong). Buys as many hull points
+    /// as `amount` cash covers, capped at the damage actually taken. Returns the
+    /// points repaired and the cash spent.
+    pub fn repair_hull(&mut self, amount: u32) -> (u32, u32) {
+        let missing = MAX_HEALTH - self.health;
+        let affordable = amount / REPAIR_PRICE_PER_POINT;
+        let points = affordable.min(missing);
+        let spent = points * REPAIR_PRICE_PER_POINT;
+        self.cash -= spent;
+        self.health += points;
+        (points, spent)
     }
 
     /// Declare victory. The run loop calls this when the player retires at or
@@ -338,5 +377,54 @@ mod tests {
         assert_eq!(g.store(Good::Silk, 7), 7);
         assert_eq!(g.hold.quantity(Good::Silk), 3);
         assert_eq!(g.warehouse[Good::Silk.index()], 7);
+    }
+
+    #[test]
+    fn buy_guns_spends_cash_takes_hold_and_arms_ship() {
+        let (mut g, _) = new_game();
+        g.cash = 5_000;
+        let start_guns = g.guns;
+        let start_cap = g.hold.capacity();
+        let cost = g.buy_guns(2).unwrap();
+        assert_eq!(cost, 2 * GUN_PRICE);
+        assert_eq!(g.cash, 5_000 - 2 * GUN_PRICE);
+        assert_eq!(g.guns, start_guns + 2);
+        // Two guns reserve 2 * GUN_HOLD_COST of capacity.
+        assert_eq!(g.hold.capacity(), start_cap - 2 * GUN_HOLD_COST);
+    }
+
+    #[test]
+    fn buy_guns_rejects_when_cash_short() {
+        let (mut g, _) = new_game();
+        g.cash = GUN_PRICE - 1;
+        assert!(g.buy_guns(1).is_err());
+        assert_eq!(g.guns, START_GUNS); // unchanged
+    }
+
+    #[test]
+    fn buy_guns_rejects_when_hold_full() {
+        let (mut g, _) = new_game();
+        g.cash = 1_000_000;
+        g.market = Market::with_prices([1, 1, 1, 1]);
+        // Fill the hold so there's no room for a gun's reserved space.
+        let cap = g.hold.capacity();
+        g.buy(Good::General, cap).unwrap();
+        assert!(g.buy_guns(1).is_err());
+        assert_eq!(g.guns, START_GUNS);
+    }
+
+    #[test]
+    fn repair_hull_buys_points_capped_by_cash_and_damage() {
+        let (mut g, _) = new_game();
+        g.cash = 10_000;
+        g.damage(30); // health 70, missing 30
+        let (points, spent) = g.repair_hull(1_000); // 1000/50 = 20 points affordable
+        assert_eq!(points, 20);
+        assert_eq!(spent, 20 * REPAIR_PRICE_PER_POINT);
+        assert_eq!(g.health, 90);
+        // Now repair more than the remaining damage: capped at the missing 10.
+        let (points2, _) = g.repair_hull(10_000);
+        assert_eq!(points2, 10);
+        assert_eq!(g.health, MAX_HEALTH);
     }
 }
