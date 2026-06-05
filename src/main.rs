@@ -177,7 +177,8 @@ USAGE
   taipan step  --action '<verb> [args]' [--save FILE]
   taipan state [--save FILE]
       Stateless turn-by-turn play over a JSON save file. Each `step` applies
-      ONE action and prints the new game state as JSON.
+      ONE action and prints the new game state as one line of compact JSON
+      (NDJSON) — pipe through `jq .` for a readable view, or `jq '.cash'` etc.
 
 RESUME
   Just run `taipan play` — with no flags it loads taipan-save.json and picks up

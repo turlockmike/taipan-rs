@@ -81,14 +81,14 @@ fn json_escape(s: &str) -> String {
     out
 }
 
-/// Serialize a save to a pretty, stable JSON string.
+/// Serialize a save to one line of compact JSON (NDJSON), newline-terminated.
 pub fn to_json(save: &Save) -> String {
     let g = &save.game;
     let prices = g.market.prices();
     let units = g.hold.units();
     let wh = g.warehouse;
 
-    // pending block
+    // pending block (compact)
     let pending = match &save.pending {
         Pending::Command => "\"command\"".to_string(),
         Pending::Combat { enemies, sunk } => {
@@ -96,33 +96,37 @@ pub fn to_json(save: &Save) -> String {
                 .iter()
                 .map(|h| h.to_string())
                 .collect::<Vec<_>>()
-                .join(", ");
-            format!("{{ \"combat\": {{ \"enemy_hps\": [{list}], \"sunk\": {sunk} }} }}")
+                .join(",");
+            format!("{{\"combat\":{{\"enemy_hps\":[{list}],\"sunk\":{sunk}}}}}")
         }
     };
 
+    // One compact JSON object on a single line, newline-terminated — NDJSON.
+    // The sole consumer is programmatic (the step interface), so this composes
+    // with `jq`, line readers, and stream appenders. For a human-readable view,
+    // pipe through `jq .`.
     format!(
         concat!(
-            "{{\n",
-            "  \"version\": {version},\n",
-            "  \"pending\": {pending},\n",
-            "  \"last_event\": \"{event}\",\n",
-            "  \"outcome\": \"{outcome}\",\n",
-            "  \"mode\": \"{mode}\",\n",
-            "  \"location\": \"{location}\",\n",
-            "  \"cash\": {cash},\n",
-            "  \"bank\": {bank},\n",
-            "  \"debt\": {debt},\n",
-            "  \"net_worth\": {net_worth},\n",
-            "  \"guns\": {guns},\n",
-            "  \"health\": {health},\n",
-            "  \"at_home\": {at_home},\n",
-            "  \"hold_capacity\": {cap},\n",
-            "  \"hold_free\": {hold_free},\n",
-            "  \"hold\": {{ \"opium\": {ho}, \"silk\": {hs}, \"arms\": {ha}, \"general\": {hg} }},\n",
-            "  \"warehouse\": {{ \"opium\": {wo}, \"silk\": {ws}, \"arms\": {wa}, \"general\": {wg} }},\n",
-            "  \"prices\": {{ \"opium\": {po}, \"silk\": {ps}, \"arms\": {pa}, \"general\": {pg} }},\n",
-            "  \"rng_state\": {rng}\n",
+            "{{",
+            "\"version\":{version},",
+            "\"pending\":{pending},",
+            "\"last_event\":\"{event}\",",
+            "\"outcome\":\"{outcome}\",",
+            "\"mode\":\"{mode}\",",
+            "\"location\":\"{location}\",",
+            "\"cash\":{cash},",
+            "\"bank\":{bank},",
+            "\"debt\":{debt},",
+            "\"net_worth\":{net_worth},",
+            "\"guns\":{guns},",
+            "\"health\":{health},",
+            "\"at_home\":{at_home},",
+            "\"hold_capacity\":{cap},",
+            "\"hold_free\":{hold_free},",
+            "\"hold\":{{\"opium\":{ho},\"silk\":{hs},\"arms\":{ha},\"general\":{hg}}},",
+            "\"warehouse\":{{\"opium\":{wo},\"silk\":{ws},\"arms\":{wa},\"general\":{wg}}},",
+            "\"prices\":{{\"opium\":{po},\"silk\":{ps},\"arms\":{pa},\"general\":{pg}}},",
+            "\"rng_state\":{rng}",
             "}}\n"
         ),
         version = SAVE_VERSION,
@@ -144,9 +148,18 @@ pub fn to_json(save: &Save) -> String {
         at_home = g.location == Port::HOME,
         hold_free = g.hold.free(),
         cap = g.hold.capacity(),
-        ho = units[0], hs = units[1], ha = units[2], hg = units[3],
-        wo = wh[0], ws = wh[1], wa = wh[2], wg = wh[3],
-        po = prices[0], ps = prices[1], pa = prices[2], pg = prices[3],
+        ho = units[0],
+        hs = units[1],
+        ha = units[2],
+        hg = units[3],
+        wo = wh[0],
+        ws = wh[1],
+        wa = wh[2],
+        wg = wh[3],
+        po = prices[0],
+        ps = prices[1],
+        pa = prices[2],
+        pg = prices[3],
         rng = save.rng_state,
     )
 }
@@ -467,18 +480,18 @@ mod tests {
     fn save_carries_version_and_rejects_mismatch() {
         let json = to_json(&sample_save());
         assert!(
-            json.contains("\"version\": 1"),
+            json.contains("\"version\":1"),
             "save should carry a version"
         );
         // A save with a wrong version is rejected with a clear message.
-        let bumped = json.replace("\"version\": 1", "\"version\": 999");
+        let bumped = json.replace("\"version\":1", "\"version\":999");
         let err = from_json(&bumped).unwrap_err();
         assert!(
             err.contains("version"),
             "expected version error, got: {err}"
         );
         // A save with no version (legacy v0) is also rejected.
-        let stripped = json.replace("\"version\": 1,\n", "");
+        let stripped = json.replace("\"version\":1,", "");
         assert!(from_json(&stripped).is_err());
     }
 
