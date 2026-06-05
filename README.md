@@ -40,12 +40,6 @@ curl -fsSL https://raw.githubusercontent.com/turlockmike/taipan-rs/main/install.
 Set `TAIPAN_INSTALL_DIR` to choose a different location. Make sure the install
 directory is on your `PATH`.
 
-### Homebrew (macOS / Linux)
-
-```sh
-brew install turlockmike/tap/taipan
-```
-
 ### With Cargo
 
 If you have a Rust toolchain ([rustup](https://rustup.rs)):
