@@ -210,7 +210,9 @@ pub fn buy(
     qty: u32,
 ) -> Result<u32, TradeError> {
     let price = market.price(good);
-    let affordable = if price == 0 { qty } else { *cash / price };
+    // A free good (price 0) is unlimited-affordable; otherwise how many units
+    // the cash covers. `checked_div` yields None on the price==0 case.
+    let affordable = cash.checked_div(price).unwrap_or(qty);
     if qty > affordable {
         return Err(TradeError::NotEnoughCash { affordable });
     }
