@@ -1,0 +1,21 @@
+[package]
+name = "taipan"
+version = "0.1.0"
+edition = "2021"
+description = "A dependency-free Rust recreation of the classic 1982 China Seas trading game."
+authors = ["turlockmike"]
+license = "MIT"
+repository = "https://github.com/turlockmike/taipan-rs"
+readme = "README.md"
+keywords = ["game", "cli", "trading", "taipan", "roguelike"]
+categories = ["games", "command-line-utilities"]
+
+# Library crate holds all game logic so it can be unit-tested with `cargo test`.
+[lib]
+name = "taipan"
+path = "src/lib.rs"
+
+# Thin binary: argument parsing + the real stdin/stdout I/O loop.
+[[bin]]
+name = "taipan"
+path = "src/main.rs"

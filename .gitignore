@@ -1,0 +1,10 @@
+# Rust build output
+/target
+
+# Game save files written by `taipan new/step`
+*taipan-save.json
+/g.json
+
+# OS / editor cruft
+.DS_Store
+*.swp
